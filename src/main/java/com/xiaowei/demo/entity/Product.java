@@ -46,6 +46,9 @@ public class Product extends BaseEntity {
     @TableField("merchant_id")
     private String merchantId;
 
+    @TableField("purchase_limit")
+    private Integer purchaseLimit;
+
     @TableField(exist = false)
     private BigDecimal discount;
 

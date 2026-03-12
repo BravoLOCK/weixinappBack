@@ -35,7 +35,7 @@ public class UserAddressController {
     /**
      * 删除用户地址
      */
-    @DeleteMapping("/delete/{id}")
+    @PostMapping("/delete/{id}")
     public Result<?> deleteUserAddress(@PathVariable String id) {
         boolean success = userAddressService.removeById(id);
         return success ? Result.success("删除成功") : Result.error("删除失败");
@@ -44,7 +44,7 @@ public class UserAddressController {
     /**
      * 更新用户地址
      */
-    @PutMapping("/update")
+    @PostMapping("/update")
     public Result<?> updateUserAddress(@RequestBody UserAddress userAddress) {
         boolean success = userAddressService.updateById(userAddress);
         return success ? Result.success("更新成功") : Result.error("更新失败");
@@ -81,6 +81,19 @@ public class UserAddressController {
 
         Page<UserAddress> result = userAddressService.page(page, wrapper);
         return Result.success(result);
+    }
+
+    /**
+     * 查询指定用户的所有收货地址
+     */
+    @GetMapping("/by-user/{userId}")
+    public Result<List<UserAddress>> getAddressByUserId(@PathVariable String userId) {
+        LambdaQueryWrapper<UserAddress> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(UserAddress::getUserId, userId)
+               .orderByDesc(UserAddress::getIsDefault)
+               .orderByDesc(UserAddress::getCreateTime);
+        List<UserAddress> list = userAddressService.list(wrapper);
+        return Result.success(list);
     }
 
 }

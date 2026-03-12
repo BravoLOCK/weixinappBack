@@ -116,9 +116,12 @@ public class GroupActivity extends BaseEntity {
      * 设置剩余时间（小时）
      */
     public void setRemainingHours() {
-        if (isEnded()) this.remainingHours = 0L;
+        if (isEnded()) {
+            this.remainingHours = 0L;
+            return;
+        }
         LocalDateTime now = LocalDateTime.now();
-        this.remainingHours = java.time.Duration.between(now, this.endTime).getSeconds()/3600;
+        this.remainingHours = java.time.Duration.between(now, this.endTime).getSeconds() / 3600;
     }
 
     /**
