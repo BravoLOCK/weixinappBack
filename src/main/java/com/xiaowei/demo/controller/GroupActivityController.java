@@ -3,6 +3,7 @@ package com.xiaowei.demo.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xiaowei.demo.common.Result;
+import com.xiaowei.demo.common.constant.GroupActivityStatus;
 import com.xiaowei.demo.entity.GroupActivity;
 import com.xiaowei.demo.entity.GroupMember;
 import com.xiaowei.demo.entity.Product;
@@ -81,13 +82,18 @@ public class GroupActivityController {
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String productId,
+            @RequestParam(required = false) String leaderId,
             @RequestParam(required = false) String keyword) {
 
         Page<GroupActivity> page = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<GroupActivity> wrapper = new LambdaQueryWrapper<>();
 
         if (productId != null && !productId.trim().isEmpty()) {
-            wrapper.like(GroupActivity::getProductId, productId);
+            wrapper.eq(GroupActivity::getProductId, productId);
+        }
+
+        if (leaderId != null && !leaderId.trim().isEmpty()) {
+            wrapper.eq(GroupActivity::getLeaderId, leaderId);
         }
 
         if (keyword != null && !keyword.trim().isEmpty()) {
@@ -98,20 +104,73 @@ public class GroupActivityController {
 
         //为扩展字段赋值
         for (GroupActivity entity : result.getRecords()) {
-            //获取参与团购的成员
+            //获取参与团购的成员，并填充成员的用户信息
             LambdaQueryWrapper<GroupMember> wrapper_member = new LambdaQueryWrapper<>();
-            wrapper_member.like(GroupMember::getGroupActivityId, entity.getId());
-            List<GroupMember> list = groupMemberService.list(wrapper_member);
-            entity.setMembers(list);
+            wrapper_member.eq(GroupMember::getGroupActivityId, entity.getId());
+            List<GroupMember> members = groupMemberService.list(wrapper_member);
+            for (GroupMember member : members) {
+                member.setUser(userService.getById(member.getUserId()));
+            }
+            entity.setMembers(members);
             //获取团长对象
             entity.setLeader(userService.getById(entity.getLeaderId()));
             //获取商品对象
             entity.setProduct(productService.getById(entity.getProductId()));
             //设置剩余时间
             entity.setRemainingHours();
+            //设置团购进度
+            entity.setProgress(entity.getTargetMembers() != null && entity.getTargetMembers() > 0
+                    ? (double) entity.getCurrentMembers() / entity.getTargetMembers() * 100 : 0.0);
+            //设置是否可参与
+            entity.setCanJoin(entity.canJoin());
+            //团购价回填：活动无独立价格时取商品团购价
+            if (entity.getGroupPrice() == null && entity.getProduct() != null) {
+                entity.setGroupPrice(entity.getProduct().getGroupPrice());
+            }
         }
 
         return Result.success(result);
+    }
+
+    /**
+     * 根据商品ID查询可参与的团购活动（商品详情页使用）
+     */
+    @GetMapping("/by-product/{productId}")
+    public Result<List<GroupActivity>> getActivitiesByProductId(@PathVariable String productId) {
+        LambdaQueryWrapper<GroupActivity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(GroupActivity::getProductId, productId)
+               .in(GroupActivity::getStatus, GroupActivityStatus.NOT_STARTED, GroupActivityStatus.IN_PROGRESS)
+               .orderByAsc(GroupActivity::getEndTime);
+
+        List<GroupActivity> list = groupActivityService.list(wrapper);
+
+        for (GroupActivity entity : list) {
+            // 获取参与团购的成员，并填充成员的用户信息
+            LambdaQueryWrapper<GroupMember> memberWrapper = new LambdaQueryWrapper<>();
+            memberWrapper.eq(GroupMember::getGroupActivityId, entity.getId());
+            List<GroupMember> members = groupMemberService.list(memberWrapper);
+            for (GroupMember member : members) {
+                member.setUser(userService.getById(member.getUserId()));
+            }
+            entity.setMembers(members);
+            // 获取团长信息
+            entity.setLeader(userService.getById(entity.getLeaderId()));
+            // 获取商品信息
+            entity.setProduct(productService.getById(entity.getProductId()));
+            // 设置剩余时间
+            entity.setRemainingHours();
+            // 设置团购进度
+            entity.setProgress(entity.getTargetMembers() != null && entity.getTargetMembers() > 0
+                    ? (double) entity.getCurrentMembers() / entity.getTargetMembers() * 100 : 0.0);
+            // 设置是否可参与
+            entity.setCanJoin(entity.canJoin());
+            // 团购价回填：活动无独立价格时取商品团购价
+            if (entity.getGroupPrice() == null && entity.getProduct() != null) {
+                entity.setGroupPrice(entity.getProduct().getGroupPrice());
+            }
+        }
+
+        return Result.success(list);
     }
 
     /**
@@ -126,9 +185,56 @@ public class GroupActivityController {
     /**
      * 加入团购活动
      */
-    @GetMapping("/join")
+    @PostMapping("/join")
     public Result<?> joinGroupActivity(@RequestParam String activityId, @RequestParam String userId, @RequestParam Integer quantity) {
         boolean success = groupActivityService.joinGroupActivity(activityId, userId, quantity);
         return success ? Result.success("加入成功") : Result.error("加入失败");
+    }
+
+    /**
+     * 查询用户参与的所有团购活动（含所有状态）
+     */
+    @GetMapping("/by-member/{userId}")
+    public Result<List<GroupActivity>> getActivitiesByMemberUserId(@PathVariable String userId) {
+        // 先查出该用户的所有成员记录
+        LambdaQueryWrapper<GroupMember> memberWrapper = new LambdaQueryWrapper<>();
+        memberWrapper.eq(GroupMember::getUserId, userId);
+        List<GroupMember> memberRecords = groupMemberService.list(memberWrapper);
+
+        if (memberRecords.isEmpty()) {
+            return Result.success(java.util.Collections.emptyList());
+        }
+
+        List<String> activityIds = memberRecords.stream()
+                .map(GroupMember::getGroupActivityId)
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
+
+        LambdaQueryWrapper<GroupActivity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(GroupActivity::getId, activityIds)
+               .orderByDesc(GroupActivity::getCreateTime);
+
+        List<GroupActivity> list = groupActivityService.list(wrapper);
+
+        for (GroupActivity entity : list) {
+            LambdaQueryWrapper<GroupMember> mw = new LambdaQueryWrapper<>();
+            mw.eq(GroupMember::getGroupActivityId, entity.getId());
+            List<GroupMember> members = groupMemberService.list(mw);
+            for (GroupMember member : members) {
+                member.setUser(userService.getById(member.getUserId()));
+            }
+            entity.setMembers(members);
+            entity.setLeader(userService.getById(entity.getLeaderId()));
+            entity.setProduct(productService.getById(entity.getProductId()));
+            entity.setRemainingHours();
+            entity.setProgress(entity.getTargetMembers() != null && entity.getTargetMembers() > 0
+                    ? (double) entity.getCurrentMembers() / entity.getTargetMembers() * 100 : 0.0);
+            entity.setCanJoin(entity.canJoin());
+            if (entity.getGroupPrice() == null && entity.getProduct() != null) {
+                entity.setGroupPrice(entity.getProduct().getGroupPrice());
+            }
+        }
+
+        return Result.success(list);
     }
 }

@@ -47,6 +47,9 @@ public class Product extends BaseEntity {
     private String merchantId;
 
     @TableField(exist = false)
+    private Integer purchaseLimit;
+
+    @TableField(exist = false)
     private BigDecimal discount;
 
     public void setDiscount() {

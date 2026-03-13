@@ -43,6 +43,9 @@ public class AuthController {
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
         log.debug("生成令牌参数："+user.getId()+"&"+user.getUsername());
 
+        // 清除密码信息
+        user.setPassword(null);
+        
         Map<String, Object> data = new HashMap<>();
         data.put("token", token);
         data.put("user", user);

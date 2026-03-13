@@ -80,7 +80,7 @@ public class CartController {
         LambdaQueryWrapper<Cart> wrapper = new LambdaQueryWrapper<>();
 
         if (userId != null && !userId.trim().isEmpty()) {
-            wrapper.like(Cart::getUserId, keyword);
+            wrapper.eq(Cart::getUserId, userId);
         }
 
         //TUDO：此处需要关联商品表进行更复杂的查询 by xiaowei.zu
